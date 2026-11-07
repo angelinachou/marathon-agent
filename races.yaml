@@ -1,0 +1,66 @@
+# Races the agent watches. Edit freely.
+#
+#   check_url   official page that announces the lottery / ballot window
+#   entry       which entry route to apply for (told to the AI agent)
+#   domains     official domains; the agent only navigates to these by URL
+#   max_charge  most the agent may let a site charge or authorize on your card
+#               when applying (0 = never enter a card for this race)
+#
+# Boston is not listed: it has no public lottery (qualifying time or charity only).
+# Pages and fees checked against the official sites on 2026-11-07.
+
+tokyo:
+  name: Tokyo Marathon
+  check_url: https://www.marathon.tokyo/en/participants/
+  entry: General Entry lottery (overseas applicant)
+  domains: [marathon.tokyo, onetokyo.org]
+  timezone: Asia/Tokyo
+  max_charge: {amount: 0, currency: JPY}   # fee is paid later, only if selected
+
+london:
+  name: London Marathon
+  check_url: https://www.londonmarathonevents.co.uk/ballot
+  entry: Public ballot as an international (non-UK) runner; do not choose "double your chances"
+  domains: [londonmarathonevents.co.uk, tcslondonmarathon.com]
+  timezone: Europe/London
+  max_charge: {amount: 290, currency: GBP}  # international entry fee was GBP 275
+
+berlin:
+  name: Berlin Marathon
+  check_url: https://www.generali-berlin-marathon.com/en/registration/run
+  entry: Marathon lottery (runner, not inline skating or wheelchair); choose the free poncho, not the paid clothing bag
+  domains: [generali-berlin-marathon.com, bmw-berlin-marathon.com, scc-events.com]
+  timezone: Europe/Berlin
+  max_charge: {amount: 225, currency: EUR}  # fee was EUR 215, charged only if drawn
+
+chicago:
+  name: Chicago Marathon
+  check_url: https://www.chicagomarathon.com/apply/
+  entry: Non-guaranteed entry drawing as a U.S. resident (not charity, not time qualifier)
+  domains: [chicagomarathon.com]
+  timezone: America/Chicago
+  max_charge: {amount: 275, currency: USD}  # fee was USD 250 + processing, only if selected
+
+nyc:
+  name: New York City Marathon
+  check_url: https://www.nyrr.org/tcsnycmarathon/the-drawing
+  entry: Non-guaranteed general entry drawing as a U.S. resident (not NYC-metro unless profile says so)
+  domains: [nyrr.org]
+  timezone: America/New_York
+  max_charge: {amount: 400, currency: USD}  # card charged only on acceptance; fee not yet published
+
+sydney:
+  name: Sydney Marathon
+  check_url: https://www.tcssydneymarathon.com/marathon
+  entry: Public ballot (international entrant)
+  domains: [tcssydneymarathon.com]
+  timezone: Australia/Sydney
+  max_charge: {amount: 380, currency: AUD}  # international fee was AUD 340 + carbon levy, only if drawn
+
+capetown:
+  name: Cape Town Marathon
+  check_url: https://capetownmarathon.com/
+  entry: Public ballot for the 42.2 km marathon
+  domains: [capetownmarathon.com, howler.co.za]
+  timezone: Africa/Johannesburg
+  max_charge: {amount: 20, currency: ZAR}   # ballot processing fee was ZAR 5

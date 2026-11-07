@@ -1,0 +1,13 @@
+__pycache__/
+*.py[oc]
+.venv/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# personal data: never commit
+profile.yaml
+state.json
+*.png
+.env
+MARATHON_AGENT_BUILD_SPEC.md

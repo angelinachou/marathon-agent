@@ -1,0 +1,32 @@
+[project]
+name = "marathon-agent"
+version = "1.0.0"
+description = "Watches the World Marathon Majors and applies to their lotteries for you when they open."
+license = "MIT"
+requires-python = ">=3.13"
+dependencies = [
+    "anthropic>=2.6.0",
+    "beautifulsoup4>=4.15.0",
+    "httpx>=0.28.1",
+    "playwright>=1.64.1",
+    "pyyaml>=6.0.3",
+]
+
+[project.scripts]
+marathon-agent = "marathon_agent.main:main"
+
+[build-system]
+requires = ["uv_build>=0.9.30,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "ruff>=0.17.4",
+]
+
+[tool.ruff]
+line-length = 110
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

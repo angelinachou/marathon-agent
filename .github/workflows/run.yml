@@ -1,0 +1,49 @@
+name: marathon-agent
+
+on:
+  schedule:
+    - cron: "23 13 * * *"   # ~9am US Eastern
+    - cron: "53 1 * * *"    # ~9pm US Eastern
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "check | apply RACE | rehearse RACE | applied RACE YEAR | status | test-email"
+        default: check
+
+# Only runs in a copy where you've set the repository variable ENABLED=true,
+# so the public template never runs anything.
+permissions:
+  contents: write   # to save state.json on the `state` branch
+concurrency:
+  group: marathon-agent
+  cancel-in-progress: false
+
+jobs:
+  run:
+    if: vars.ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen --no-dev
+      - name: Load state
+        run: git fetch -q origin state && git show FETCH_HEAD:state.json > state.json || echo '{}' > state.json
+      - name: Run
+        env:
+          COMMAND: ${{ inputs.command || 'check' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PROFILE: ${{ secrets.PROFILE }}
+        run: uv run marathon-agent $COMMAND
+      - name: Save state
+        if: always()
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          git show FETCH_HEAD:state.json 2>/dev/null | cmp -s - state.json && exit 0
+          mkdir /tmp/s && cp state.json /tmp/s/ && cd /tmp/s
+          git init -q -b state && git add state.json
+          git -c user.name=marathon-agent -c user.email=marathon-agent@users.noreply.github.com commit -qm "state"
+          git push -qf "https://x-access-token:${TOKEN}@github.com/${{ github.repository }}" state

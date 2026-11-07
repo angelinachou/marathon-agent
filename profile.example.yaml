@@ -1,0 +1,52 @@
+# Copy to profile.yaml, fill in YOUR details, then store it as the PROFILE secret:
+#   gh secret set PROFILE < profile.yaml
+# profile.yaml is git-ignored. Never commit it.
+#
+# The AI agent sees everything under `runner`. Passwords, the card and the Gmail
+# app password are never shown to it: it types placeholders that are swapped
+# for the real values inside the browser.
+
+runner:
+  first_name: Alex
+  last_name: Example
+  gender: female
+  date_of_birth: 1990-01-31
+  email: alex.example@gmail.com
+  phone: "+1 555 555 0100"
+  address:
+    street: 123 Main St
+    city: Springfield
+    state: IL
+    zip: "62701"
+    country: United States
+  nationality: United States
+  country_of_residence: United States
+  tshirt_size: S
+  estimated_finish_time: "4:30:00"
+  marathons_completed: 0
+  emergency_contact:
+    name: Sam Example
+    relationship: Partner
+    phone: "+1 555 555 0101"
+
+# Password the agent uses when it has to create a race account for you.
+password: "change-me-to-a-strong-unique-password"
+
+# Optional: existing race accounts (key = race id from races.yaml).
+accounts: {}
+#  nyc: {email: alex.example@gmail.com, password: "..."}
+
+# Charged only within each race's max_charge in races.yaml.
+card:
+  name: Alex Example
+  number: "4242424242424242"
+  exp_month: "12"
+  exp_year: "2030"
+  cvc: "123"
+  zip: "62701"
+
+# Gmail is used to email you, and to read login codes / confirmation emails.
+# Create an app password at https://myaccount.google.com/apppasswords
+gmail:
+  address: alex.example@gmail.com
+  app_password: "abcd efgh ijkl mnop"

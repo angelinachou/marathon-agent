@@ -1,0 +1,24 @@
+<!doctype html>
+<html><head><title>Mock Marathon 2027 Lottery</title></head>
+<body>
+<h1>Mock Marathon 2027 – Lottery application</h1>
+<form id="f" onsubmit="event.preventDefault(); done();">
+  <label for="fn">First name</label><input id="fn" required>
+  <label for="ln">Last name</label><input id="ln" required>
+  <label for="dob">Date of birth</label><input id="dob" type="date" required>
+  <label for="country">Country of residence</label>
+  <select id="country"><option></option><option>United States</option><option>Germany</option></select>
+  <label for="shirt">T-shirt size</label>
+  <select id="shirt"><option></option><option>XS</option><option>S</option><option>M</option></select>
+  <label><input type="checkbox" id="ins"> Add cancellation insurance ($30)</label>
+  <label><input type="checkbox" id="waiver" required> I accept the participant waiver</label>
+  <p>Your card will be charged USD 250 only if you are selected.</p>
+  <label for="cc">Card number</label><input id="cc" autocomplete="cc-number" required>
+  <button type="submit">Submit application</button>
+</form>
+<div id="ok" hidden>Application received. Confirmation number MA-12345.</div>
+<script>
+function done(){ document.getElementById('f').hidden = true; document.getElementById('ok').hidden = false;
+  window.submissions = (window.submissions || 0) + 1; }
+</script>
+</body></html>
