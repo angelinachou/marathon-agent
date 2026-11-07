@@ -12,7 +12,7 @@ import anthropic
 import httpx
 from bs4 import BeautifulSoup
 
-from .config import cost, now
+from .config import api_problem, cost, now
 
 UA = "Mozilla/5.0 (compatible; marathon-agent/1.0; +https://github.com/angelinachou/marathon-agent)"
 MODEL = "claude-haiku-5-5"
@@ -21,6 +21,14 @@ LINK_WORDS = re.compile(r"ballot|lotter|draw|apply|applic|entry|enter|regist|sig
 
 class Blocked(Exception):
     """The site refused us (bot wall, queue, 403/429). Never treated as 'closed'."""
+
+
+class ApiDown(Exception):
+    """The page was read but the AI can't be used (bad key / no credit)."""
+
+    def __init__(self, reason: str, digest: str):
+        super().__init__(reason)
+        self.reason, self.digest = reason, digest
 
 
 def squash(s: str) -> str:
@@ -113,6 +121,22 @@ def classify(race: dict, text: str, links: list[str]) -> tuple[dict, float]:
     return json.loads(out), cost(MODEL, resp.usage)
 
 
+def ping() -> str | None:
+    """Tiny API call to catch a bad key or empty balance early. Returns a problem or None."""
+    try:
+        anthropic.Anthropic().messages.create(
+            model=MODEL,
+            max_tokens=5,
+            thinking={"type": "disabled"},
+            messages=[{"role": "user", "content": "Reply OK."}],
+        )
+    except anthropic.AnthropicError as e:
+        if reason := api_problem(e):
+            return reason
+        print(f"API ping failed (not a key/credit problem): {type(e).__name__}: {e}")
+    return None
+
+
 def parse_when(value: str | None, tz: str, end_of_day: bool) -> datetime | None:
     if not value:
         return None
@@ -168,7 +192,12 @@ def observe(race: dict, previous: dict, classifier=classify) -> tuple[dict, floa
     if previous.get("hash") == digest and previous.get("answer"):
         answer = previous["answer"]
     else:
-        answer, spent = classifier(race, text, links)
+        try:
+            answer, spent = classifier(race, text, links)
+        except Exception as e:
+            if reason := api_problem(e):
+                raise ApiDown(reason, digest) from e
+            raise
     obs = verify(answer, race, text)
     obs.update(hash=digest, answer=answer, url=race["check_url"])
     return obs, spent

@@ -1,5 +1,7 @@
 """The check -> apply -> email flow, with the network, browser and email faked."""
 
+import anthropic
+import httpx
 import pytest
 
 from marathon_agent import check, config, main
@@ -51,7 +53,9 @@ def env(tmp_path, monkeypatch):
         }
 
     monkeypatch.setattr(main, "apply", fake_apply)
-    return NS(sent=sent, applied=applied, obs=obs, outcome=outcome)
+    api = {"problem": None}
+    monkeypatch.setattr(main, "ping", lambda: api["problem"])
+    return NS(sent=sent, applied=applied, obs=obs, outcome=outcome, api=api)
 
 
 class NS:
@@ -111,3 +115,73 @@ def test_manual_applied_stops_auto_apply(env):
 def test_dry_run_saves_and_sends_nothing(env):
     main.main(["check", "--dry-run"])
     assert env.applied == [] and env.sent == [] and not config.STATE_FILE.exists()
+
+
+def api_error(cls, status, message):
+    resp = httpx.Response(status, request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"))
+    return cls(message, response=resp, body=None)
+
+
+def test_bad_key_alerts_once_a_week_and_recovers(env):
+    env.api["problem"] = "your Anthropic API key is invalid, expired or revoked"
+    env.obs["value"] = OPEN | {"status": "closed"}
+    main.main(["check"])
+    main.main(["check"])
+    assert env.sent == ["🔑 marathon-agent needs a new Anthropic API key or credit"]
+    env.api["problem"] = None
+    main.main(["check"])
+    assert env.sent[-1] == "✅ marathon-agent: the Anthropic API is working again"
+
+
+def test_ai_down_falls_back_to_page_changed_emails(env, monkeypatch):
+    digest = {"value": "aaa"}
+
+    def down(race, prev):
+        raise check.ApiDown("your Anthropic account is out of credit", digest["value"])
+
+    monkeypatch.setattr(main, "observe", down)
+    main.main(["check"])  # first sighting: nothing to compare against except the api alert
+    main.main(["check"])  # same page: no email
+    digest["value"] = "bbb"
+    main.main(["check"])  # page changed: email
+    assert env.sent.count("📄 The Berlin Marathon entry page changed") == 2  # first run had no hash yet
+    assert main.main(["check"]) == 0  # not a failed run
+
+
+def test_out_of_credit_during_apply_says_apply_yourself_once(env, monkeypatch):
+    err = api_error(anthropic.BadRequestError, 400, "Your credit balance is too low to access the API.")
+
+    def broke(*a, **k):
+        raise err
+
+    monkeypatch.setattr(main, "apply", broke)
+    env.api["problem"] = "your Anthropic account is out of credit"  # the ping sees it too
+    main.main(["check"])
+    main.main(["check"])
+    assert env.sent == [
+        "🔑 marathon-agent needs a new Anthropic API key or credit",
+        "⚠️ Berlin Marathon 2027 is OPEN — please apply yourself",
+    ]
+    ed = config.load_state()["races"]["berlin"]["editions"]["2027"]
+    assert ed["attempts"] == 0  # retried automatically once credit is added
+
+
+def test_crash_after_submit_is_never_retried(env, monkeypatch):
+    def crash(rid, race, profile, start, year, **kw):
+        kw["on_submit"]()
+        raise RuntimeError("browser died")
+
+    monkeypatch.setattr(main, "apply", crash)
+    main.main(["check"])
+    main.main(["check"])
+    ed = config.load_state()["races"]["berlin"]["editions"]["2027"]
+    assert ed["result"] == "submitted_unconfirmed" and ed["attempts"] == 1
+    assert any("no confirmation seen" in s for s in env.sent)
+
+
+def test_api_problem_classification():
+    assert "invalid" in config.api_problem(api_error(anthropic.AuthenticationError, 401, "bad key"))
+    assert "credit" in config.api_problem(
+        api_error(anthropic.BadRequestError, 400, "Your credit balance is too low")
+    )
+    assert config.api_problem(api_error(anthropic.RateLimitError, 429, "slow down")) is None

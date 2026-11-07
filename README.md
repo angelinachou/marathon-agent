@@ -87,8 +87,11 @@ application, `MONTHLY_BUDGET_USD` (default $20, tracked in state) and your Conso
 
 - **"Can't read the X page for 2+ days" email**: the race moved its page. Update `check_url`
   in `races.yaml`.
-- **Run failed (GitHub emails you)**: every page was unreadable, usually a missing/invalid
-  `ANTHROPIC_API_KEY`. Check the run log.
+- **"🔑 needs a new Anthropic API key or credit" email**: your key expired or credit ran out
+  (checked with a tiny API call every run). Until you fix it the agent emails you whenever a
+  race's entry page changes, and tells you to apply yourself if a lottery is open. It emails
+  again when things work. Fix: add credit in the Console, or `gh secret set ANTHROPIC_API_KEY -R <repo>`.
+- **Run failed (GitHub emails you)**: no race page could be read at all. Check the run log.
 - **Scheduled runs are late**: GitHub may delay scheduled runs by up to an hour or so. Two
   runs a day covers it; lottery windows last days to weeks.
 

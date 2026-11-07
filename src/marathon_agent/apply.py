@@ -30,15 +30,29 @@ SNAPSHOT_JS = r"""() => {
   const out = [];
   const sel = 'input, select, textarea, button, a[href], [role=button], [role=checkbox], '
     + '[role=radio], [role=combobox], [role=option], [role=switch], [contenteditable=true]';
+  // Collect controls, including those inside shadow DOM (e.g. Salesforce login pages).
+  const all = [];
+  const walk = root => {
+    for (const el of root.querySelectorAll('*')) {
+      if (el.matches(sel)) all.push(el);
+      if (el.shadowRoot) walk(el.shadowRoot);
+    }
+  };
+  walk(document);
   let n = 0;
-  for (const el of document.querySelectorAll(sel)) {
+  for (const el of all) {
     if (n >= 250 || el.type === 'hidden') continue;
     const r = el.getBoundingClientRect(), st = getComputedStyle(el);
     const box = el.type === 'checkbox' || el.type === 'radio';
     if (!box && (r.width === 0 || r.height === 0 || st.visibility === 'hidden')) continue;
     let label = el.labels && el.labels.length ? [...el.labels].map(l => l.innerText).join(' ') : '';
     const by = el.getAttribute('aria-labelledby');
-    if (!label && by) label = by.split(' ').map(i => document.getElementById(i)?.innerText || '').join(' ');
+    const root = el.getRootNode();
+    if (!label && by) label = by.split(' ').map(i => root.getElementById?.(i)?.innerText || '').join(' ');
+    if (!label && !['A', 'BUTTON'].includes(el.tagName)) {  // nearest text above the field
+      for (let p = el.parentElement || root.host, i = 0; p && i < 8 && !label; p = p.parentElement || p.getRootNode().host, i++)
+        label = p.getAttribute('data-name') || p.getAttribute('label') || (p.innerText || '').trim().split('\n')[0];
+    }
     label = (label || el.getAttribute('aria-label') || el.placeholder || el.title || el.name || '')
       .replace(/\s+/g, ' ').trim().slice(0, 120);
     const text = (el.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 80);

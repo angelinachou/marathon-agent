@@ -11,16 +11,51 @@ Add --dry-run to check/apply without saving state or sending email, --show to wa
 
 import argparse
 import math
+import os
 import sys
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from . import mail
 from .apply import apply
-from .check import observe, parse_when
-from .config import add_spend, load_profile, load_races, load_state, now, over_budget, save_state
+from .check import ApiDown, observe, parse_when, ping
+from .config import (
+    add_spend,
+    api_problem,
+    load_profile,
+    load_races,
+    load_state,
+    now,
+    over_budget,
+    save_state,
+)
 
 FINISHED = {"applied", "already_applied", "submitted_unconfirmed"}
 MAX_ATTEMPTS = 3
+
+
+def api_alert(state, reason, notify):
+    """Tell the user (at most weekly) that the API key or credit needs attention."""
+    last = state.get("api_alerted_at")
+    if last and now() - datetime.fromisoformat(last) < timedelta(days=7):
+        return
+    state["api_alerted_at"] = now().isoformat()
+    repo = os.environ.get("GITHUB_REPOSITORY", "<your private repo>")
+    notify(
+        "🔑 marathon-agent needs a new Anthropic API key or credit",
+        f"I can't use the AI because {reason}.\n\n"
+        "Until this is fixed I'll still email you when a race's entry page changes, "
+        "but I can't tell whether a lottery is open or apply for you.\n\n"
+        "To fix:\n"
+        "  1. Add credit: https://console.anthropic.com/settings/billing\n"
+        "     or create a new key: https://console.anthropic.com/settings/keys\n"
+        f"  2. If you made a new key, run:  gh secret set ANTHROPIC_API_KEY -R {repo}\n"
+        "I'll email you again once it's working.",
+    )
+
+
+def api_ok(state, notify):
+    if state.pop("api_alerted_at", None):
+        notify("✅ marathon-agent: the Anthropic API is working again", "Back to normal checks.")
 
 
 def edition_state(rs: dict, year) -> dict:
@@ -31,10 +66,20 @@ def run_apply(rid, race, rs, profile, state, *, rehearse=False, dry=False, show=
     year = rs.get("edition_year")
     ed = edition_state(rs, year)
     start = rs.get("apply_url") or race["check_url"]
+    name = f"{race['name']} {year or ''}".strip()
+    closes = rs.get("closes") or "not stated"
+
+    def apply_yourself(why):  # once per race+edition, so twice-daily runs don't repeat it
+        if not ed.get("told_to_apply"):
+            ed["told_to_apply"] = True
+            notify(
+                f"⚠️ {name} is OPEN — please apply yourself",
+                f"I can't apply because {why}.\n\nApply here: {start}\nLottery closes: {closes}\n\n"
+                f"Afterwards run the workflow with: applied {rid} {year}",
+            )
+
     if over_budget(state):
-        notify(
-            f"⚠️ {race['name']} {year}: monthly AI budget reached, not applying", f"Apply yourself: {start}"
-        )
+        apply_yourself("this month's AI budget is used up")
         return
     if dry:
         print(f"[dry-run] would {'rehearse' if rehearse else 'apply to'} {rid} {year} from {start}")
@@ -45,10 +90,22 @@ def run_apply(rid, race, rs, profile, state, *, rehearse=False, dry=False, show=
         save_state(state)
 
     print(f"{'Rehearsing' if rehearse else 'Applying to'} {race['name']} {year} ...")
-    out = apply(rid, race, profile, start, year, rehearse=rehearse, on_submit=on_submit, headless=not show)
+    try:
+        out = apply(
+            rid, race, profile, start, year, rehearse=rehearse, on_submit=on_submit, headless=not show
+        )
+    except Exception as e:  # noqa: BLE001 - report every crash instead of losing the run
+        if ed.get("result") == "submitted_unconfirmed":  # crashed after clicking submit: never retry
+            out = {"status": "submitted_unconfirmed", "summary": f"Crashed after submitting: {e}"[:400]}
+        elif reason := api_problem(e):
+            api_alert(state, reason, notify)
+            apply_yourself(reason)
+            return  # not counted as an attempt: it retries once the key/credit is fixed
+        else:
+            out = {"status": "failed", "summary": f"The agent crashed: {type(e).__name__}: {e}"[:400]}
+        out |= {"cost_usd": 0, "confirmation": "", "final_url": start, "screenshot": None}
     add_spend(state, out["cost_usd"])
     status = out["status"]
-    closes = rs.get("closes") or "not stated"
     if not rehearse:
         ed["attempts"] += 1
         if status == "blocked":  # e.g. CAPTCHA or price above cap: retrying won't help
@@ -59,7 +116,6 @@ def run_apply(rid, race, rs, profile, state, *, rehearse=False, dry=False, show=
         f"Lottery closes: {closes}\nLink: {start}\nLast page: {out.get('final_url')}\n"
         f"AI cost: ${out['cost_usd']}"
     )
-    name = f"{race['name']} {year or ''}".strip()
     if status == "applied":
         subject = f"✅ Applied: {name}"
     elif status == "already_applied":
@@ -93,6 +149,10 @@ def remind(rid, race, rs, notify):
 
 
 def cmd_check(races, state, profile, args, notify) -> int:
+    if problem := ping():
+        api_alert(state, problem, notify)
+    else:
+        api_ok(state, notify)
     ok = 0
     for rid, race in races.items():
         if args.race and rid != args.race:
@@ -100,6 +160,18 @@ def cmd_check(races, state, profile, args, notify) -> int:
         rs = state.setdefault("races", {}).setdefault(rid, {})
         try:
             obs, spent = observe(race, rs)
+        except ApiDown as e:  # page read fine, AI unavailable: fall back to "page changed" emails
+            ok += 1
+            print(f"{rid:9} NO-AI      {e.reason}")
+            api_alert(state, e.reason, notify)
+            if e.digest != (rs.get("seen_hash") or rs.get("hash")):
+                notify(
+                    f"📄 The {race['name']} entry page changed",
+                    f"I can't read it without the AI ({e.reason}), so please take a look:\n"
+                    f"{race['check_url']}",
+                )
+            rs["seen_hash"] = e.digest
+            continue
         except Exception as e:  # noqa: BLE001 - one broken site must not stop the others
             print(f"{rid:9} UNREADABLE  {type(e).__name__}: {e}")
             rs["error"] = f"{type(e).__name__}: {e}"[:300]
@@ -114,6 +186,7 @@ def cmd_check(races, state, profile, args, notify) -> int:
             continue
         ok += 1
         add_spend(state, spent)
+        rs["seen_hash"] = obs["hash"]
         for k in ("error", "failing_since", "failure_alerted"):
             rs.pop(k, None)
         rs.update(

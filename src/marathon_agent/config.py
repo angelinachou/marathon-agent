@@ -56,5 +56,22 @@ def add_spend(state: dict, usd: float) -> None:
     spend[month] = round(spend.get(month, 0) + usd, 4)
 
 
+def api_problem(e: Exception) -> str | None:
+    """A plain-English reason if `e` means the Anthropic key/credit needs your attention."""
+    import anthropic
+
+    msg = str(e).lower()
+    if isinstance(e, anthropic.APIStatusError):
+        if e.status_code == 401:
+            return "your Anthropic API key is invalid, expired or revoked"
+        if e.status_code == 402 or "credit balance" in msg or "billing" in msg:
+            return "your Anthropic account is out of credit"
+        if e.status_code == 403:
+            return "your Anthropic API key isn't allowed to use the model"
+    elif isinstance(e, anthropic.AnthropicError) and "api_key" in msg:
+        return "no Anthropic API key is set"
+    return None
+
+
 def over_budget(state: dict) -> bool:
     return state.get("spend_usd", {}).get(now().strftime("%Y-%m"), 0) >= MONTHLY_BUDGET_USD
