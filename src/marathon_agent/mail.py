@@ -5,7 +5,7 @@ import email.policy
 import imaplib
 import re
 import smtplib
-from datetime import timedelta
+from datetime import UTC, timedelta
 from email.message import EmailMessage
 from email.utils import parsedate_to_datetime
 
@@ -35,29 +35,41 @@ def _text(msg: email.message.Message) -> str:
     return re.sub(r"[ \t]+", " ", body)
 
 
-def recent(profile: dict, domains: list[str], minutes: int = 30) -> list[dict]:
-    """Emails from any of `domains` received in the last `minutes`, newest first."""
+def recent(profile: dict, domains: list[str], minutes: int = 30, chars: int = 3000) -> list[dict]:
+    """Emails from any of `domains` (sender contains it) in the last `minutes`, newest first."""
     gmail = profile.get("gmail") or {}
     if not gmail.get("app_password"):
         return []
+    try:
+        return _recent(gmail, domains, minutes, chars)
+    except (imaplib.IMAP4.error, OSError) as e:  # never let email trouble stop an application
+        print(f"Warning: couldn't read Gmail ({e}). Check gmail.app_password in your profile.")
+        return []
+
+
+def _recent(gmail: dict, domains: list[str], minutes: int, chars: int) -> list[dict]:
     since = now() - timedelta(minutes=minutes)
     found = []
     with imaplib.IMAP4_SSL("imap.gmail.com") as imap:
         imap.login(gmail["address"], gmail["app_password"])
         imap.select("INBOX", readonly=True)
-        _, data = imap.search(None, "SINCE", since.strftime("%d-%b-%Y"))
-        for num in reversed(data[0].split()[-50:]):
-            _, raw = imap.fetch(num, "(RFC822)")
+        nums = set()
+        for domain in domains:
+            _, data = imap.search(None, "SINCE", since.strftime("%d-%b-%Y"), "FROM", domain)
+            nums.update(data[0].split()[-10:])
+        for num in nums:
+            _, raw = imap.fetch(num, "(BODY.PEEK[])")
             msg = email.message_from_bytes(raw[0][1], policy=email.policy.default)
-            sender = str(msg.get("From", "")).lower()
             when = parsedate_to_datetime(msg["Date"]) if msg["Date"] else now()
-            if when >= since and any(d in sender for d in domains):
+            if when.tzinfo is None:  # some senders omit the timezone
+                when = when.replace(tzinfo=UTC)
+            if when >= since:
                 found.append(
                     {
-                        "from": sender,
+                        "from": str(msg.get("From", "")).lower(),
                         "subject": str(msg["Subject"]),
                         "date": when.isoformat(),
-                        "body": _text(msg)[:3000],
+                        "body": _text(msg)[:chars],
                     }
                 )
-    return found
+    return sorted(found, key=lambda m: m["date"], reverse=True)

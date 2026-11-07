@@ -4,7 +4,18 @@ import json
 from pathlib import Path
 from types import SimpleNamespace as NS
 
+import pytest
+
 from marathon_agent import apply as ap
+
+INBOX = []
+
+
+@pytest.fixture(autouse=True)
+def fake_inbox(monkeypatch):
+    INBOX.clear()
+    monkeypatch.setattr(ap.mail, "recent", lambda profile, domains, minutes=30, chars=3000: list(INBOX))
+
 
 FORM = (Path(__file__).parent / "fixtures" / "mock_form.html").resolve().as_uri()
 RACE = {
@@ -139,3 +150,28 @@ def test_profile_split_hides_only_secrets():
     assert visible["card"]["number"] == "{{card.number}}"
     assert visible["accounts"]["nyc"] == {"email": "x@y.z", "password": "{{accounts.nyc.password}}"}
     assert secrets["password"] == "hunter2-secret"
+
+
+def test_past_race_emails_are_shown_to_the_agent():
+    INBOX.append(
+        {
+            "from": "no-reply@my.example.com",
+            "subject": "Your registration confirmation for the lottery",
+            "date": "2026-10-05",
+            "body": "We received your registration for the lottery",
+        }
+    )
+    out, model, submits = run(
+        [
+            lambda s: (
+                "done",
+                {
+                    "status": "already_applied",
+                    "confirmation": "",
+                    "summary": "Email shows an existing entry.",
+                },
+            )
+        ]
+    )
+    assert "Your registration confirmation for the lottery" in model.seen[0]
+    assert out["status"] == "already_applied" and submits == []

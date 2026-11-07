@@ -120,8 +120,8 @@ def run_apply(rid, race, rs, profile, state, *, rehearse=False, dry=False, show=
         subject = f"✅ Applied: {name}"
     elif status == "already_applied":
         subject = f"✅ Already applied: {name}"
-    elif status == "rehearsed":
-        subject = f"🧪 Rehearsal done: {name}"
+    elif rehearse:
+        subject = f"🧪 Rehearsal {'done' if status == 'rehearsed' else f'stopped ({status})'}: {name}"
     elif status == "submitted_unconfirmed":
         subject = f"❓ {name}: submitted but no confirmation seen — please check your account"
     else:
